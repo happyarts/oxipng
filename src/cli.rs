@@ -274,15 +274,15 @@ that this is enabled by default and will only be disabled at level 5 or above.")
         )
         .arg(
             Arg::new("compression")
-                .help("Deflate compression level (0-12)")
+                .help("Deflate compression level (0-14)")
                 .long_help("\
-Deflate compression level (0-12) for main compression trials. The levels here are defined \
-by the libdeflate compression library.
+Deflate compression level (0-14) for main compression trials. The levels here are defined \
+by the libdeflate compression library; 13 and 14 come from a patch that compresses further.
 
 The default value depends on the optimization level preset.")
                 .long("zc")
                 .value_name("level")
-                .value_parser(0..=12)
+                .value_parser(0..=14)
                 .conflicts_with("zopfli"),
         )
         .arg(
