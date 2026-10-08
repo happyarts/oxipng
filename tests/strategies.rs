@@ -121,7 +121,19 @@ fn filter_brute() {
     );
 }
 
-const ALL_STRATEGIES: [FilterStrategy; 10] = [
+#[test]
+fn filter_incremental() {
+    test_it_converts(
+        "tests/files/rgba_8_should_be_rgba_8.png",
+        FilterStrategy::Incremental,
+        RGBA,
+        BitDepth::Eight,
+        RGBA,
+        BitDepth::Eight,
+    );
+}
+
+const ALL_STRATEGIES: [FilterStrategy; 11] = [
     FilterStrategy::NONE,
     FilterStrategy::SUB,
     FilterStrategy::UP,
@@ -135,6 +147,7 @@ const ALL_STRATEGIES: [FilterStrategy; 10] = [
         num_lines: 4,
         level: 1,
     },
+    FilterStrategy::Incremental,
 ];
 
 /// Choose the filters by section, check the result's shape, and that the filtered image decodes

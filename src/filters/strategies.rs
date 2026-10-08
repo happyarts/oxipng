@@ -1,6 +1,7 @@
 use libdeflater::{CompressionLvl, Compressor};
 use std::{fmt, fmt::Display};
 
+use super::incremental::IncrementalEvaluator;
 use crate::RowFilter;
 
 /// Filtering strategy for use in [`Options`][crate::Options]
@@ -23,6 +24,8 @@ pub enum FilterStrategy {
         /// The compression level to use (1-12)
         level: u8,
     },
+    /// Smallest size in a running deflate stream of the lines chosen so far
+    Incremental,
     /// Predefined filter for each row
     Predefined(Vec<RowFilter>),
 }
@@ -44,6 +47,7 @@ impl FilterStrategy {
             Self::Brute { num_lines, level } => {
                 Some(Box::new(BruteEvaluator::new(*num_lines, *level)))
             }
+            Self::Incremental => Some(Box::new(IncrementalEvaluator::new())),
             _ => None,
         }
     }
@@ -58,6 +62,7 @@ impl Display for FilterStrategy {
             Self::Bigrams => "Bigrams".fmt(f),
             Self::BigEnt => "BigEnt".fmt(f),
             Self::Brute { .. } => "Brute".fmt(f),
+            Self::Incremental => "Incremental".fmt(f),
             Self::Predefined(_) => "Predefined".fmt(f),
         }
     }

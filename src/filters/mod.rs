@@ -1,5 +1,6 @@
 use std::{fmt, fmt::Display, mem::transmute};
 
+mod incremental;
 mod strategies;
 pub use strategies::FilterStrategy;
 
