@@ -452,6 +452,11 @@ fn parse_opts_into_struct(
         opts.deflater = Deflater::Zopfli(ZopfliOptions {
             iteration_count,
             iterations_without_improvement,
+            final_block_trials: true,
+            code_length_passes: true,
+            tree_match_finder: true,
+            parallel_chunks: true,
+            merge_blocks: true,
             ..Default::default()
         });
     }
