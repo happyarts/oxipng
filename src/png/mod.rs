@@ -340,7 +340,34 @@ impl PngImage {
         strategy: FilterStrategy,
         optimize_alpha: bool,
     ) -> (Vec<u8>, FilterStrategy) {
-        let mut output = Vec::with_capacity(self.ihdr.raw_data_size());
+        self.filter_lines(strategy, optimize_alpha, true)
+    }
+
+    /// Choose the filter for each line with a heuristic strategy, returned as predefined filters,
+    /// without keeping the filtered image (other strategies are returned as they are)
+    #[must_use]
+    pub fn choose_filters(&self, strategy: FilterStrategy, optimize_alpha: bool) -> FilterStrategy {
+        self.filter_lines(strategy, optimize_alpha, false).1
+    }
+
+    fn filter_lines(
+        &self,
+        strategy: FilterStrategy,
+        optimize_alpha: bool,
+        keep_output: bool,
+    ) -> (Vec<u8>, FilterStrategy) {
+        let mut strategy_evaluator = strategy.evaluator();
+        // Without the output, keep only what the strategy reads back, for the longest line
+        // (interlaced passes have shorter ones); trimming at twice that keeps it linear
+        let line_len = (self.ihdr.width as usize * self.ihdr.bpp()).div_ceil(8) + 1;
+        let look_back = strategy_evaluator
+            .as_ref()
+            .map_or(0, |evaluator| evaluator.look_back(line_len));
+        let mut output = Vec::with_capacity(if keep_output {
+            self.ihdr.raw_data_size()
+        } else {
+            0
+        });
         let bpp = self.bytes_per_channel() * self.channels_per_pixel();
         // If alpha optimization is enabled, determine how many bytes of alpha there are per pixel
         let alpha_bytes = if optimize_alpha && self.ihdr.color_type.has_alpha() {
@@ -353,8 +380,10 @@ impl PngImage {
         let mut prev_pass: Option<u8> = None;
         // For heuristic strategies, keep track of the actual filter used for each line
         let mut filters_used = Vec::new();
-        let mut strategy_evaluator = strategy.evaluator();
         for (i, line) in self.scan_lines(false).enumerate() {
+            if !keep_output && output.len() > 2 * look_back {
+                output.drain(..output.len() - look_back);
+            }
             if prev_pass != line.pass || prev_line.is_empty() {
                 prev_line = vec![0; line.data.len()];
                 prev_pass = line.pass;
