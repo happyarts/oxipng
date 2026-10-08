@@ -77,11 +77,16 @@ fn optimize_apng() {
 
 #[test]
 fn optimize_combined() {
-    // Fast evaluation (preset 2) and full trials (preset 6) with filters chosen by section;
-    // with sanity-checks, optimize validates the output
-    let original = fs::read("tests/files/rgba_8_should_be_rgba_8.png").unwrap();
-    for preset in [2, 6] {
-        assert!(oxipng::optimize_from_memory(&original, &Options::from_preset(preset)).is_ok());
+    // The qualifying round with fast evaluation (preset 2) and without (preset 6), on a small
+    // image and on one of several sections; with sanity-checks, optimize validates the output
+    for file in [
+        "tests/files/rgba_8_should_be_rgba_8.png",
+        "tests/files/filter_0_for_grayscale_alpha_16.png",
+    ] {
+        let original = fs::read(file).unwrap();
+        for preset in [2, 6] {
+            assert!(oxipng::optimize_from_memory(&original, &Options::from_preset(preset)).is_ok());
+        }
     }
 }
 
