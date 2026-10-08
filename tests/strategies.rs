@@ -145,11 +145,17 @@ fn test_sections(
     optimize_alpha: bool,
 ) -> Vec<usize> {
     let strategies = IndexSet::from_iter(strategies.iter().cloned());
-    let sections = image
-        .filter_by_sections(&strategies, optimize_alpha, 7)
-        .expect("several sections");
+    let sections = image.filter_by_sections(&strategies, optimize_alpha, 7);
     assert_eq!(sections.filters.len(), image.scan_lines(false).count());
     assert!(sections.sections > 1);
+    assert!(sections.is_combined());
+    // The chosen filters are estimated no larger than any strategy
+    assert!(
+        sections
+            .estimated
+            .iter()
+            .all(|&e| e >= sections.estimated_chosen)
+    );
     assert_eq!(
         sections.won.iter().sum::<usize>(),
         image.ihdr.raw_data_size()
@@ -202,7 +208,7 @@ fn filter_by_sections_predefined() {
 
 #[test]
 fn filter_by_sections_single_section() {
-    // Two lines of 200 KiB make a single section: nothing to choose by section
+    // Two lines of 200 KiB make a single section, compressed whole
     let mut image = load("tests/files/rgb_8_should_be_rgb_8.png");
     image.ihdr.width = 200 * 1024 / 3;
     image.ihdr.height = 2;
@@ -211,5 +217,12 @@ fn filter_by_sections_single_section() {
         .collect();
     assert!(image.ihdr.raw_data_size() > 3 * 128 * 1024);
     let strategies = IndexSet::from_iter(ALL_STRATEGIES);
-    assert!(image.filter_by_sections(&strategies, false, 7).is_none());
+    let sections = image.filter_by_sections(&strategies, false, 7);
+    assert_eq!(sections.sections, 1);
+    assert!(!sections.is_combined());
+    // Each estimate is the strategy's size for the whole image
+    for (strategy, estimate) in strategies.iter().zip(&sections.estimated) {
+        let (filtered, _) = image.filter_image(strategy.clone(), false);
+        assert_eq!(*estimate, deflate(&filtered, 7, None).unwrap().len());
+    }
 }

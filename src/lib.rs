@@ -17,6 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use indexmap::IndexMap;
 pub use indexmap::{IndexSet, indexset};
 use log::{debug, info, trace, warn};
 use rayon::prelude::*;
@@ -460,30 +461,106 @@ fn evaluation_level(opts: &Options) -> u8 {
     }
 }
 
-/// Filters chosen section by section from all strategies, as a predefined filter, and the
-/// strategy that won most of the image. With one or two filters, the reductions were already
-/// evaluated with all of them.
-fn sections_with_dominant(
-    image: &PngImage,
-    opts: &Options,
-    deadline: &Deadline,
-) -> Option<(FilterStrategy, FilterStrategy)> {
-    if opts.filters.len() <= 2 || deadline.passed() {
+/// Filters chosen section by section for an APNG frame, if they combine several strategies.
+/// With one or two filters, the frames keep the main image's filter.
+fn frame_sections(image: &PngImage, opts: &Options, deadline: &Deadline) -> Option<FilterStrategy> {
+    if opts.filters.len() <= 2 || deadline.passed() || image.section_bounds().len() < 3 {
         return None;
     }
     let sections =
-        image.filter_by_sections(&opts.filters, opts.optimize_alpha, evaluation_level(opts))?;
-    let dominant = opts.filters[sections.dominant()].clone();
-    debug!(
-        "Filters chosen in {} sections, {}% {}",
-        sections.sections,
-        100 * sections.won[sections.dominant()] / sections.won.iter().sum::<usize>(),
-        dominant
-    );
-    Some((FilterStrategy::Predefined(sections.filters), dominant))
+        image.filter_by_sections(&opts.filters, opts.optimize_alpha, evaluation_level(opts));
+    sections
+        .is_combined()
+        .then_some(FilterStrategy::Predefined(sections.filters))
 }
 
-/// Perform compression trials
+/// How many candidates of the qualifying round go on to the main compression, and how far
+/// above the best estimate they may be, as a fraction of it
+fn qualifying_limits(opts: &Options) -> (usize, f64) {
+    if opts.fast_evaluation {
+        (2, 0.01)
+    } else if opts.filters.len() >= 10 {
+        (4, 0.03)
+    } else {
+        (3, 0.03)
+    }
+}
+
+/// Evaluate every filter strategy section by section at the evaluation level, then compress only
+/// the most promising with the main deflater: the filters chosen by section and the strategies
+/// estimated close to the best. Each keeps the filters chosen in the evaluation.
+fn qualifying_round(
+    image: Arc<PngImage>,
+    opts: &Options,
+    deadline: Arc<Deadline>,
+    max_size: Option<usize>,
+) -> Option<Candidate> {
+    let sections =
+        image.filter_by_sections(&opts.filters, opts.optimize_alpha, evaluation_level(opts));
+    let dominant = sections.dominant();
+    // Estimates, filters and the strategy reported for them. The filters chosen by section come
+    // first, so they stay first on equal estimates.
+    let mut ranked = Vec::with_capacity(opts.filters.len() + 1);
+    if sections.is_combined() {
+        debug!(
+            "Filters chosen in {} sections, {}% {}",
+            sections.sections,
+            100 * sections.won[dominant] / sections.won.iter().sum::<usize>(),
+            opts.filters[dominant]
+        );
+        ranked.push((sections.estimated_chosen, &sections.filters, dominant));
+    }
+    ranked.extend(
+        sections
+            .estimated
+            .iter()
+            .zip(&sections.strategy_filters)
+            .enumerate()
+            .map(|(s, (&estimate, filters))| (estimate, filters, s)),
+    );
+    ranked.sort_by_key(|&(estimate, ..)| estimate);
+    let (limit, threshold) = qualifying_limits(opts);
+    let cutoff = ranked[0].0 + (ranked[0].0 as f64 * threshold) as usize;
+    // The finalists' filters for each line, and the strategy reported for each
+    let mut finalists = IndexMap::new();
+    for (estimate, filters, reported) in ranked {
+        if finalists.len() == limit || estimate > cutoff {
+            break;
+        }
+        let filters = FilterStrategy::Predefined(filters.clone());
+        if !finalists.contains_key(&filters) {
+            trace!("Qualified: {:8} {} bytes", opts.filters[reported], estimate);
+            finalists.insert(filters, opts.filters[reported].clone());
+        }
+    }
+
+    // If the deadline passed during the evaluation, a fast evaluation still compresses the best
+    // (as with a single main compression trial), full trials give up
+    let deadline = if deadline.passed() && opts.fast_evaluation {
+        finalists.truncate(1);
+        Arc::new(Deadline::new(None))
+    } else {
+        deadline
+    };
+    debug!("Trying {} filters with {}", finalists.len(), opts.deflater);
+    let eval = Evaluator::new(
+        deadline,
+        finalists.keys().cloned().collect(),
+        opts.deflater,
+        opts.optimize_alpha,
+        true,
+    );
+    if let Some(max_size) = max_size {
+        eval.set_best_size(max_size);
+    }
+    eval.try_image(image);
+    let mut result = eval.get_best_candidate()?;
+    // Report the strategy rather than its filters, for printing and for APNG frames
+    result.filter = finalists[&result.filter].clone();
+    Some(result)
+}
+
+/// Perform compression trials: with more than two filters, a qualifying round
 fn perform_trials(
     image: Arc<PngImage>,
     opts: &Options,
@@ -494,19 +571,14 @@ fn perform_trials(
     eval_deflater: Deflater,
 ) -> Option<Candidate> {
     let mut filters = opts.filters.clone();
+    if filters.len() > 2 && !deadline.passed() {
+        return qualifying_round(image, opts, deadline, max_size);
+    }
     let fast_eval = opts.fast_evaluation && (filters.len() > 1 || eval_result.is_some());
     if fast_eval {
         // Perform a fast evaluation of selected filters followed by a single main compression trial
 
-        let combined = sections_with_dominant(&image, opts, &deadline);
-        if let Some((filter, _)) = &combined {
-            // Rather than each filter for the whole image, evaluate the filters chosen by section,
-            // against the filters for the reductions (already evaluated if there were any)
-            filters = indexset! {filter.clone()};
-            if eval_result.is_none() {
-                filters.extend(eval_filters.iter().cloned());
-            }
-        } else if eval_result.is_some() {
+        if eval_result.is_some() {
             // Some filters have already been evaluated, we don't need to try them again
             filters = filters.difference(&eval_filters).cloned().collect();
         }
@@ -548,43 +620,17 @@ fn perform_trials(
                 Err(_) => (),
             }
         }
-        return Some(report_dominant(result, combined));
+        return Some(result);
     }
 
     // Perform full compression trials of selected filters and determine the best
     debug!("Trying {} filters with {}", filters.len(), opts.deflater);
-    let eval = Evaluator::new(
-        deadline.clone(),
-        filters,
-        opts.deflater,
-        opts.optimize_alpha,
-        true,
-    );
+    let eval = Evaluator::new(deadline, filters, opts.deflater, opts.optimize_alpha, true);
     if let Some(max_size) = max_size {
         eval.set_best_size(max_size);
     }
-    eval.try_image(image.clone());
-    // While those run, choose the filters by section: one more trial
-    let combined = sections_with_dominant(&image, opts, &deadline);
-    if let Some((filter, _)) = &combined {
-        eval.try_image_with_filters(image, indexset! {filter.clone()});
-    }
+    eval.try_image(image);
     eval.get_best_candidate()
-        .map(|result| report_dominant(result, combined))
-}
-
-/// The result's filter is used for printing and for APNG frames: report the strategy that won
-/// most of the image rather than the filters chosen by section
-fn report_dominant(
-    mut result: Candidate,
-    combined: Option<(FilterStrategy, FilterStrategy)>,
-) -> Candidate {
-    if let Some((filter, dominant)) = combined
-        && result.filter == filter
-    {
-        result.filter = dominant;
-    }
-    result
 }
 
 #[derive(Debug)]
@@ -675,8 +721,7 @@ fn recompress_frames(
             ihdr.height = frame.height;
             let image = PngImage::new(ihdr, &frame.data)?;
             // Like the main image, a frame of several sections gets its filters by section
-            let filter = sections_with_dominant(&image, opts, &deadline)
-                .map_or_else(|| filter.clone(), |(sections, _)| sections);
+            let filter = frame_sections(&image, opts, &deadline).unwrap_or_else(|| filter.clone());
             let (filtered, _) = image.filter_image(filter, opts.optimize_alpha);
             let max_size = Some(frame.data.len() - 1);
             if let Ok(data) = opts.deflater.deflate(&filtered, max_size) {
