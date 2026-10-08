@@ -239,3 +239,34 @@ fn filter_by_sections_single_section() {
         assert_eq!(*estimate, deflate(&filtered, 7, None).unwrap().len());
     }
 }
+
+#[test]
+fn choose_filters_without_output() {
+    // The filters chosen without keeping the filtered image are the same, also with Brute
+    // reading back several lines
+    let mut strategies = ALL_STRATEGIES.to_vec();
+    strategies.push(FilterStrategy::Brute {
+        num_lines: 8,
+        level: 5,
+    });
+    for (file, optimize_alpha) in [
+        (
+            "tests/files/rgba_16_should_be_grayscale_alpha_16.png",
+            false,
+        ),
+        (
+            "tests/files/interlaced_rgba_16_should_be_grayscale_alpha_16.png",
+            false,
+        ),
+        ("tests/files/filter_0_for_rgba_8.png", true),
+    ] {
+        let image = load(file);
+        for strategy in &strategies {
+            assert_eq!(
+                image.choose_filters(strategy.clone(), optimize_alpha),
+                image.filter_image(strategy.clone(), optimize_alpha).1,
+                "{file} {strategy}"
+            );
+        }
+    }
+}

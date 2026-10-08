@@ -73,6 +73,10 @@ pub(crate) trait StrategyEvaluator {
     fn reset(&mut self, _line_len: usize) {}
     /// Evaluate the output of a filter attempt, returning true if it's the best so far.
     fn evaluate(&mut self, output: &[u8], offset: usize) -> bool;
+    /// How many bytes of output `evaluate` reads back, for lines up to the given length.
+    fn look_back(&self, _line_len: usize) -> usize {
+        0
+    }
 }
 
 // MSAD algorithm mentioned in libpng reference docs
@@ -258,7 +262,7 @@ impl BruteEvaluator {
 }
 impl StrategyEvaluator for BruteEvaluator {
     fn reset(&mut self, line_len: usize) {
-        self.limit = line_len * self.num_lines;
+        self.limit = self.look_back(line_len);
         let capacity = self.compressor.deflate_compress_bound(self.limit);
         self.buffer.resize(capacity, 0);
     }
@@ -273,6 +277,9 @@ impl StrategyEvaluator for BruteEvaluator {
         };
         self.buffer.truncate(size - 1);
         true
+    }
+    fn look_back(&self, line_len: usize) -> usize {
+        line_len * self.num_lines
     }
 }
 

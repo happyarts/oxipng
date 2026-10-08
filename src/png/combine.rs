@@ -76,7 +76,7 @@ impl PngImage {
                 let mut filters = match strategy {
                     FilterStrategy::Basic(filter) => vec![*filter; lines.len()],
                     FilterStrategy::Predefined(filters) => filters.clone(),
-                    _ => match self.filter_image(strategy.clone(), optimize_alpha).1 {
+                    _ => match self.choose_filters(strategy.clone(), optimize_alpha) {
                         FilterStrategy::Predefined(filters) => filters,
                         _ => unreachable!(),
                     },
