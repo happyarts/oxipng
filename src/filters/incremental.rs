@@ -5,7 +5,8 @@
 //! chains over a 32 KiB window) and their symbols are counted for the current block. A candidate
 //! line is parsed on top of that, and its score is the size of the block with it, coded with
 //! Huffman codes built for that block. Like a streaming compressor, the parse of the chosen lines
-//! stays a little behind, so a match may run from one line into the next.
+//! stays a little behind, so a match may run from one line into the next; on narrow images that
+//! is at most a few lines, so each candidate parses a bounded multiple of its own length.
 
 use super::strategies::StrategyEvaluator;
 
@@ -15,6 +16,9 @@ const MIN_MATCH: usize = 3;
 const MAX_MATCH: usize = 258;
 /// How far the parse of the chosen lines stays behind their end
 const LOOKAHEAD: usize = MAX_MATCH + MIN_MATCH + 1;
+/// ... but at most this many lines
+const LOOKAHEAD_LINES: usize = 4;
+/// Matches reach back as far as zlib's (`MAX_DIST`)
 const MAX_DISTANCE: usize = WINDOW - LOOKAHEAD;
 const HASH_BITS: u32 = 15;
 const NO_POSITION: usize = usize::MAX;
@@ -57,8 +61,11 @@ struct Block {
 
 impl Block {
     const fn new() -> Self {
+        // Every block ends with one end-of-block symbol
+        let mut litlen = [0; LITLEN_CODES];
+        litlen[END_OF_BLOCK] = 1;
         Self {
-            litlen: [0; LITLEN_CODES],
+            litlen,
             distance: [0; DISTANCE_CODES],
             symbols: 0,
             extra_bits: 0,
@@ -81,37 +88,38 @@ impl Block {
 
     /// The size of the block in bits: the smaller of fixed and dynamic Huffman codes
     fn bits(&self, coder: &mut Coder) -> u64 {
-        let mut litlen = self.litlen;
-        litlen[END_OF_BLOCK] = 1;
-        let mut distance = self.distance;
-
-        let mut fixed = 3 + self.extra_bits;
-        for (symbol, &count) in litlen.iter().enumerate() {
-            let bits = match symbol {
-                144..=255 => 9,
-                256..=279 => 7,
-                _ => 8,
-            };
-            fixed += u64::from(count) * bits;
-        }
-        fixed += 5 * u64::from(distance.iter().sum::<u32>());
+        let sum = |counts: &[u32]| counts.iter().map(|&c| u64::from(c)).sum::<u64>();
+        let coded = |counts: &[u32], lengths: &[u8]| {
+            counts
+                .iter()
+                .zip(lengths)
+                .map(|(&c, &l)| u64::from(c) * u64::from(l))
+                .sum::<u64>()
+        };
+        // 3 bits block header; the fixed code's lengths by symbol range
+        let litlen = &self.litlen;
+        let fixed = 3
+            + self.extra_bits
+            + 8 * sum(&litlen[..144])
+            + 9 * sum(&litlen[144..256])
+            + 7 * sum(&litlen[256..280])
+            + 8 * sum(&litlen[280..])
+            + 5 * sum(&self.distance);
 
         // A dynamic block codes at least one distance
+        let mut distance = self.distance;
         if distance.iter().all(|&count| count == 0) {
             distance[0] = 1;
         }
-        let mut dynamic = 3 + self.extra_bits;
         let mut litlen_lengths = [0; LITLEN_CODES];
         let mut distance_lengths = [0; DISTANCE_CODES];
-        coder.lengths(&litlen, 15, &mut litlen_lengths);
+        coder.lengths(litlen, 15, &mut litlen_lengths);
         coder.lengths(&distance, 15, &mut distance_lengths);
-        for (&count, &length) in litlen.iter().zip(&litlen_lengths) {
-            dynamic += u64::from(count) * u64::from(length);
-        }
-        for (&count, &length) in distance.iter().zip(&distance_lengths) {
-            dynamic += u64::from(count) * u64::from(length);
-        }
-        dynamic += coder.header_bits(&litlen_lengths, &distance_lengths);
+        let dynamic = 3
+            + self.extra_bits
+            + coded(litlen, &litlen_lengths)
+            + coded(&distance, &distance_lengths)
+            + coder.header_bits(&litlen_lengths, &distance_lengths);
         dynamic.min(fixed)
     }
 }
@@ -127,8 +135,6 @@ struct Coder {
     depth: Vec<u8>,
     /// Symbol of each leaf node
     symbol: Vec<u16>,
-    /// The code lengths of a dynamic block, run-length coded: (code, extra bits)
-    runs: Vec<(u8, u8)>,
 }
 
 impl Coder {
@@ -217,7 +223,8 @@ impl Coder {
         }
     }
 
-    /// Bits of a dynamic block's header for these code lengths
+    /// Bits of a dynamic block's header for these code lengths: HLIT, HDIST, HCLEN, the code
+    /// length code and the run-length coded lengths
     fn header_bits(&mut self, litlen: &[u8; LITLEN_CODES], distance: &[u8; DISTANCE_CODES]) -> u64 {
         let used_litlen = litlen
             .iter()
@@ -236,9 +243,10 @@ impl Coder {
                 .copied()
         };
 
-        // Run-length code: 16 repeats the previous length 3-6 times, 17 and 18 code 3-10 and
-        // 11-138 zeros
-        self.runs.clear();
+        // Run-length code: 16 repeats the previous length 3-6 times (2 extra bits), 17 and 18
+        // code 3-10 and 11-138 zeros (3 and 7 extra bits)
+        let mut counts = [0; 19];
+        let mut extra_bits = 0;
         let mut lengths = all().peekable();
         while let Some(length) = lengths.next() {
             let mut run = 1;
@@ -247,30 +255,27 @@ impl Coder {
             }
             if length == 0 {
                 while run >= 11 {
-                    self.runs.push((18, 7));
+                    counts[18] += 1;
+                    extra_bits += 7;
                     run -= run.min(138);
                 }
                 if run >= 3 {
-                    self.runs.push((17, 3));
+                    counts[17] += 1;
+                    extra_bits += 3;
                     run = 0;
                 }
             } else {
-                self.runs.push((length, 0));
+                counts[length as usize] += 1;
                 run -= 1;
                 while run >= 3 {
-                    self.runs.push((16, 2));
+                    counts[16] += 1;
+                    extra_bits += 2;
                     run -= run.min(6);
                 }
             }
-            for _ in 0..run {
-                self.runs.push((length, 0));
-            }
+            counts[length as usize] += run as u32;
         }
 
-        let mut counts = [0; 19];
-        for &(code, _) in &self.runs {
-            counts[code as usize] += 1;
-        }
         let mut code_lengths = [0; 19];
         self.lengths(&counts, 7, &mut code_lengths);
         let listed = CODE_LENGTH_ORDER
@@ -278,11 +283,12 @@ impl Coder {
             .rposition(|&code| code_lengths[code] > 0)
             .map_or(0, |p| p + 1)
             .max(4);
-        let mut bits = 5 + 5 + 4 + 3 * listed as u64;
-        for &(code, extra) in &self.runs {
-            bits += u64::from(code_lengths[code as usize] + extra);
-        }
-        bits
+        let coded: u64 = counts
+            .iter()
+            .zip(code_lengths)
+            .map(|(&c, l)| u64::from(c) * u64::from(l))
+            .sum();
+        5 + 5 + 4 + 3 * listed as u64 + coded + extra_bits
     }
 }
 
@@ -348,11 +354,7 @@ impl Matcher {
         while candidate < pos && candidate >= lowest && chain > 0 {
             let c = candidate;
             if data[c + best.0] == target[best.0] {
-                let length = data[c..c + limit]
-                    .iter()
-                    .zip(target)
-                    .take_while(|(a, b)| a == b)
-                    .count();
+                let length = common_prefix(&data[c..c + limit], target);
                 if length > best.0 {
                     best = (length, pos - c);
                     if length == limit {
@@ -369,6 +371,57 @@ impl Matcher {
         }
         (best.0 >= MIN_MATCH).then_some(best)
     }
+
+    /// Parse `data` greedily from `from` until at least `to` into `block`, inserting every
+    /// position (recorded in `undo` if given); `full` gets each block that fills up before it
+    /// starts anew. Returns where the parse stopped (a match may run past `to`).
+    fn parse(
+        &mut self,
+        data: &[u8],
+        from: usize,
+        to: usize,
+        block: &mut Block,
+        mut undo: Option<&mut Vec<Insertion>>,
+        mut full: impl FnMut(&Block),
+    ) -> usize {
+        let mut pos = from;
+        while pos < to {
+            if let Some((length, distance)) = self.longest_match(data, pos) {
+                block.add_match(length, distance);
+                for p in pos..pos + length {
+                    self.insert(data, p, undo.as_deref_mut());
+                }
+                pos += length;
+            } else {
+                block.add_literal(data[pos]);
+                self.insert(data, pos, undo.as_deref_mut());
+                pos += 1;
+            }
+            if block.symbols >= BLOCK_SYMBOLS {
+                full(block);
+                *block = Block::new();
+            }
+        }
+        pos
+    }
+}
+
+/// How many leading bytes `a` and `b` (of equal length) have in common
+fn common_prefix(a: &[u8], b: &[u8]) -> usize {
+    let mut length = 0;
+    for (a, b) in a.as_chunks::<8>().0.iter().zip(b.as_chunks::<8>().0) {
+        let diff = u64::from_le_bytes(*a) ^ u64::from_le_bytes(*b);
+        if diff != 0 {
+            return length + diff.trailing_zeros() as usize / 8;
+        }
+        length += 8;
+    }
+    length
+        + a[length..]
+            .iter()
+            .zip(&b[length..])
+            .take_while(|(a, b)| a == b)
+            .count()
 }
 
 /// What an insertion into the hash chains replaced
@@ -377,46 +430,6 @@ struct Insertion {
     hash: usize,
     head: usize,
     prev: usize,
-}
-
-/// A parse in progress: the matcher, the current block and the bits of the blocks completed
-struct Parse<'a> {
-    matcher: &'a mut Matcher,
-    block: &'a mut Block,
-    coder: &'a mut Coder,
-    completed_bits: u64,
-}
-
-impl Parse<'_> {
-    /// Parse greedily from `from` until at least `to`, inserting every position; returns where
-    /// it stopped (a match may run past `to`)
-    fn run(
-        &mut self,
-        data: &[u8],
-        from: usize,
-        to: usize,
-        mut undo: Option<&mut Vec<Insertion>>,
-    ) -> usize {
-        let mut pos = from;
-        while pos < to {
-            if let Some((length, distance)) = self.matcher.longest_match(data, pos) {
-                self.block.add_match(length, distance);
-                for p in pos..pos + length {
-                    self.matcher.insert(data, p, undo.as_deref_mut());
-                }
-                pos += length;
-            } else {
-                self.block.add_literal(data[pos]);
-                self.matcher.insert(data, pos, undo.as_deref_mut());
-                pos += 1;
-            }
-            if self.block.symbols >= BLOCK_SYMBOLS {
-                self.completed_bits += self.block.bits(self.coder);
-                *self.block = Block::new();
-            }
-        }
-        pos
-    }
 }
 
 pub(crate) struct IncrementalEvaluator {
@@ -450,37 +463,99 @@ impl StrategyEvaluator for IncrementalEvaluator {
 
     fn evaluate(&mut self, output: &[u8], offset: usize) -> bool {
         // Bring the parse of the chosen lines up to the lookahead before this line
-        let chosen = &output[..offset];
-        let target = offset.saturating_sub(LOOKAHEAD);
-        if self.parsed < target {
-            self.parsed = Parse {
-                matcher: &mut self.matcher,
-                block: &mut self.block,
-                coder: &mut self.coder,
-                completed_bits: 0,
-            }
-            .run(chosen, self.parsed, target, None);
-        }
+        let line_len = output.len() - offset;
+        let lookahead = LOOKAHEAD.min(LOOKAHEAD_LINES * line_len);
+        self.parsed = self.matcher.parse(
+            &output[..offset],
+            self.parsed,
+            offset.saturating_sub(lookahead),
+            &mut self.block,
+            None,
+            |_| {},
+        );
 
         // Parse the rest with this line to the end, then take back its insertions
         let mut block = self.block.clone();
-        let mut undo = std::mem::take(&mut self.undo);
-        undo.clear();
-        let mut parse = Parse {
-            matcher: &mut self.matcher,
-            block: &mut block,
-            coder: &mut self.coder,
-            completed_bits: 0,
-        };
-        parse.run(output, self.parsed, output.len(), Some(&mut undo));
-        let bits = parse.completed_bits + block.bits(&mut self.coder);
-        self.matcher.undo(&undo);
-        self.undo = undo;
+        let mut bits = 0;
+        self.undo.clear();
+        self.matcher.parse(
+            output,
+            self.parsed,
+            output.len(),
+            &mut block,
+            Some(&mut self.undo),
+            |full| bits += full.bits(&mut self.coder),
+        );
+        bits += block.bits(&mut self.coder);
+        self.matcher.undo(&self.undo);
 
         if bits < self.best_bits {
             self.best_bits = bits;
             return true;
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The lengths form a prefix code within the limit; returns them and the Kraft sum
+    fn check(counts: &[u32], max_bits: u8) -> (Vec<u8>, u64) {
+        let mut lengths = vec![0; counts.len()];
+        Coder::default().lengths(counts, max_bits, &mut lengths);
+        assert!(
+            lengths
+                .iter()
+                .zip(counts)
+                .all(|(&l, &c)| (l == 0) == (c == 0))
+        );
+        assert!(lengths.iter().all(|&l| l <= max_bits));
+        let kraft: u64 = lengths
+            .iter()
+            .filter(|&&l| l > 0)
+            .map(|&l| 1 << (max_bits - l))
+            .sum();
+        assert!(kraft <= 1 << max_bits);
+        (lengths, kraft)
+    }
+
+    #[test]
+    fn huffman_lengths() {
+        assert_eq!(check(&[0, 5, 0], 15).0, [0, 1, 0]);
+        assert_eq!(check(&[3, 1, 1], 15), (vec![1, 2, 2], 1 << 15));
+        assert_eq!(check(&[1; LITLEN_CODES], 15).1, 1 << 15);
+        // Fibonacci counts make the deepest tree; past the limit the code stays a prefix code
+        let mut fib = vec![1_u32, 1];
+        while fib.len() < 30 {
+            fib.push(fib[fib.len() - 1] + fib[fib.len() - 2]);
+        }
+        check(&fib, 15);
+        check(&fib[..19], 7);
+    }
+
+    #[test]
+    fn match_codes() {
+        let mut block = Block::new();
+        block.add_match(258, 32768);
+        assert_eq!(block.litlen[285], 1);
+        assert_eq!(block.distance[29], 1);
+        assert_eq!(block.extra_bits, 13);
+        block.add_match(3, 1);
+        assert_eq!(block.litlen[257], 1);
+        assert_eq!(block.distance[0], 1);
+        assert_eq!(block.extra_bits, 13);
+    }
+
+    #[test]
+    fn common_prefix_lengths() {
+        let a: Vec<u8> = (0..40).collect();
+        for n in 0..40 {
+            let mut b = a.clone();
+            b[n] ^= 1;
+            assert_eq!(common_prefix(&a, &b), n);
+        }
+        assert_eq!(common_prefix(&a, &a), 40);
     }
 }

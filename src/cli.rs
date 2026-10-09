@@ -244,18 +244,18 @@ Perform compression trials with each of the given filter types. You can specify 
 comma-separated list, or a range of values. E.g. '-f 0-3' is the same as '-f 0,1,2,3'.
 
 PNG delta filters (apply the same filter to every line)
-    0  =>  None      (recommended to always include this filter)
+    0  =>  None         (recommended to always include this filter)
     1  =>  Sub
     2  =>  Up
     3  =>  Average
     4  =>  Paeth
 
 Heuristic strategies (try to find the best delta filter for each line)
-    5  =>  MinSum    Minimum sum of absolute differences
-    6  =>  Entropy   Smallest Shannon entropy
-    7  =>  Bigrams   Lowest count of distinct bigrams
-    8  =>  BigEnt    Smallest Shannon entropy of bigrams
-    9  =>  Brute     Smallest compressed size (slow)
+    5  =>  MinSum       Minimum sum of absolute differences
+    6  =>  Entropy      Smallest Shannon entropy
+    7  =>  Bigrams      Lowest count of distinct bigrams
+    8  =>  BigEnt       Smallest Shannon entropy of bigrams
+    9  =>  Brute        Smallest compressed size (slow)
     10 =>  Incremental  Smallest size in a running deflate stream (slow)
 
 The default value depends on the optimization level preset.")
