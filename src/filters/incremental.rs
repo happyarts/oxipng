@@ -26,9 +26,9 @@ const HASH_BITS: u32 = 15;
 /// Positions are kept as 32 bits (half the cache of `usize`); only their distance back counts,
 /// so they may wrap on images of more than 4 GiB
 const NO_POSITION: u32 = u32::MAX;
-/// How many earlier positions with the same hash are tried for a match in the chosen lines...
+/// How many earlier positions with the same hash are tried for a match in the chosen lines and
+/// in a candidate line
 const MAX_CHAIN: usize = 128;
-/// ... and in a candidate line, which only has to compare with the other candidates
 const TRIAL_CHAIN: usize = 32;
 /// A block ends after this many symbols
 const BLOCK_SYMBOLS: u32 = 16383;
@@ -384,34 +384,28 @@ impl Matcher {
     }
 
     /// Parse `data` greedily from `from` until at least `to` into `block`, inserting every
-    /// position (recorded in `undo` if given, for a candidate line, which searches less deeply);
-    /// `full` gets each block that fills up before it starts anew. Returns where the parse
-    /// stopped (a match may run past `to`).
+    /// position; `full` gets each block that fills up before it starts anew. Returns where the
+    /// parse stopped (a match may run past `to`).
     fn parse(
         &mut self,
         data: &[u8],
         from: usize,
         to: usize,
         block: &mut Block,
-        mut undo: Option<&mut Vec<Insertion>>,
+        mut pass: Pass,
         mut full: impl FnMut(&Block),
     ) -> usize {
         let mut pos = from;
         while pos < to {
-            let max_chain = if undo.is_some() {
-                TRIAL_CHAIN
-            } else {
-                MAX_CHAIN
-            };
-            if let Some((length, distance)) = self.longest_match(data, pos, max_chain) {
+            if let Some((length, distance)) = self.longest_match(data, pos, pass.max_chain()) {
                 block.add_match(length, distance);
                 for p in pos..pos + length {
-                    self.insert(data, p, undo.as_deref_mut());
+                    self.insert(data, p, pass.undo());
                 }
                 pos += length;
             } else {
                 block.add_literal(data[pos]);
-                self.insert(data, pos, undo.as_deref_mut());
+                self.insert(data, pos, pass.undo());
                 pos += 1;
             }
             if block.symbols >= BLOCK_SYMBOLS {
@@ -439,6 +433,29 @@ fn common_prefix(a: &[u8], b: &[u8]) -> usize {
             .zip(&b[length..])
             .take_while(|(a, b)| a == b)
             .count()
+}
+
+/// A parse of the chosen lines, or of a candidate line, whose insertions are recorded to take
+/// them back; a candidate only has to compare with the other candidates and searches less deeply
+enum Pass<'a> {
+    Chosen,
+    Candidate(&'a mut Vec<Insertion>),
+}
+
+impl Pass<'_> {
+    const fn max_chain(&self) -> usize {
+        match self {
+            Self::Chosen => MAX_CHAIN,
+            Self::Candidate(_) => TRIAL_CHAIN,
+        }
+    }
+
+    const fn undo(&mut self) -> Option<&mut Vec<Insertion>> {
+        match self {
+            Self::Chosen => None,
+            Self::Candidate(undo) => Some(undo),
+        }
+    }
 }
 
 /// What an insertion into the hash chains replaced
@@ -495,7 +512,7 @@ impl StrategyEvaluator for IncrementalEvaluator {
             self.parsed,
             offset.saturating_sub(lookahead),
             &mut self.block,
-            None,
+            Pass::Chosen,
             |_| {},
         );
 
@@ -508,7 +525,7 @@ impl StrategyEvaluator for IncrementalEvaluator {
             self.parsed,
             output.len(),
             &mut block,
-            Some(&mut self.undo),
+            Pass::Candidate(&mut self.undo),
             |full| bits += full.bits(&mut self.coder),
         );
         bits += block.bits(&mut self.coder);
