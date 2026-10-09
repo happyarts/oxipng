@@ -463,6 +463,11 @@ impl StrategyEvaluator for IncrementalEvaluator {
         self.best_bits = u64::MAX;
     }
 
+    fn look_back(&self, _line_len: usize) -> usize {
+        // The matcher keeps positions in the whole output
+        usize::MAX
+    }
+
     fn evaluate(&mut self, output: &[u8], offset: usize) -> bool {
         // Bring the parse of the chosen lines up to the lookahead before this line. With a
         // lookahead shorter than a match, a match may end at the chosen lines' end; its last

@@ -381,7 +381,7 @@ impl PngImage {
         // For heuristic strategies, keep track of the actual filter used for each line
         let mut filters_used = Vec::new();
         for (i, line) in self.scan_lines(false).enumerate() {
-            if !keep_output && output.len() > 2 * look_back {
+            if !keep_output && output.len() > look_back.saturating_mul(2) {
                 output.drain(..output.len() - look_back);
             }
             if prev_pass != line.pass || prev_line.is_empty() {

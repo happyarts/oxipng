@@ -73,7 +73,8 @@ pub(crate) trait StrategyEvaluator {
     fn reset(&mut self, _line_len: usize) {}
     /// Evaluate the output of a filter attempt, returning true if it's the best so far.
     fn evaluate(&mut self, output: &[u8], offset: usize) -> bool;
-    /// How many bytes of output `evaluate` reads back, for lines up to the given length.
+    /// How many bytes of output `evaluate` reads back, for lines up to the given length
+    /// (`usize::MAX` for all of it).
     fn look_back(&self, _line_len: usize) -> usize {
         0
     }
