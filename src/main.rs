@@ -2,7 +2,7 @@
 mod rayon;
 
 #[cfg(feature = "zopfli")]
-use std::num::NonZeroU64;
+use std::num::{NonZeroU64, NonZeroUsize};
 use std::{
     ffi::{OsStr, OsString},
     fs::DirBuilder,
@@ -450,14 +450,17 @@ fn parse_opts_into_struct(
             );
         }
 
+        let threads = matches.get_one::<usize>("threads").copied();
         opts.deflater = Deflater::Zopfli(ZopfliOptions {
             iteration_count,
             iterations_without_improvement,
             final_block_trials: true,
             code_length_passes: true,
             tree_match_finder: true,
-            // Its chunks run on threads of zopfli's own; with one thread, none
-            parallel_chunks: matches.get_one::<usize>("threads") != Some(&1),
+            // Its chunks run on threads of zopfli's own: no more than OxiPNG may use, and with
+            // one thread, none
+            parallel_chunks: threads != Some(1),
+            chunk_threads: threads.and_then(NonZeroUsize::new),
             merge_blocks: true,
             ..Default::default()
         });
