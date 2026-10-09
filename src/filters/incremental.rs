@@ -23,7 +23,9 @@ const LOOKAHEAD_LINES: usize = 4;
 /// Matches reach back as far as zlib's (`MAX_DIST`)
 const MAX_DISTANCE: usize = WINDOW - LOOKAHEAD;
 const HASH_BITS: u32 = 15;
-const NO_POSITION: usize = usize::MAX;
+/// Positions are kept as 32 bits (half the cache of `usize`); only their distance back counts,
+/// so they may wrap on images of more than 4 GiB
+const NO_POSITION: u32 = u32::MAX;
 /// How many earlier positions with the same hash are tried for a match
 const MAX_CHAIN: usize = 1100;
 /// A block ends after this many symbols
@@ -296,8 +298,8 @@ impl Coder {
 
 /// Hash chains over the positions parsed so far
 struct Matcher {
-    head: Vec<usize>,
-    prev: Vec<usize>,
+    head: Vec<u32>,
+    prev: Vec<u32>,
 }
 
 impl Matcher {
@@ -328,13 +330,13 @@ impl Matcher {
             });
         }
         self.prev[pos & WINDOW_MASK] = self.head[hash];
-        self.head[hash] = pos;
+        self.head[hash] = pos as u32;
     }
 
     /// Take back insertions, latest first
     fn undo(&mut self, insertions: &[Insertion]) {
         for insertion in insertions.iter().rev() {
-            let pos = self.head[insertion.hash];
+            let pos = self.head[insertion.hash] as usize;
             self.prev[pos & WINDOW_MASK] = insertion.prev;
             self.head[insertion.hash] = insertion.head;
         }
@@ -348,27 +350,32 @@ impl Matcher {
             return None;
         }
         let target = &data[pos..pos + limit];
-        let lowest = pos.saturating_sub(MAX_DISTANCE);
+        // Candidates are valid as far back as the window reaches (and not before the start)
+        let reach = pos.min(MAX_DISTANCE);
+        let back = |candidate: u32| (pos as u32).wrapping_sub(candidate) as usize;
         let mut best = (MIN_MATCH - 1, 0);
         let mut candidate = self.head[Self::hash(data, pos)];
+        let mut distance = back(candidate);
         let mut chain = MAX_CHAIN;
         // Chains run to lower positions; anything else is a slot reused by a later position
-        while candidate < pos && candidate >= lowest && chain > 0 {
-            let c = candidate;
+        while candidate != NO_POSITION && distance > 0 && distance <= reach && chain > 0 {
+            let c = pos - distance;
             if data[c + best.0] == target[best.0] {
                 let length = common_prefix(&data[c..c + limit], target);
                 if length > best.0 {
-                    best = (length, pos - c);
+                    best = (length, distance);
                     if length == limit {
                         break;
                     }
                 }
             }
             let next = self.prev[c & WINDOW_MASK];
-            if next >= candidate {
+            let next_distance = back(next);
+            if next == NO_POSITION || next_distance <= distance {
                 break;
             }
             candidate = next;
+            distance = next_distance;
             chain -= 1;
         }
         (best.0 >= MIN_MATCH).then_some(best)
@@ -430,8 +437,8 @@ fn common_prefix(a: &[u8], b: &[u8]) -> usize {
 #[derive(Clone, Copy)]
 struct Insertion {
     hash: usize,
-    head: usize,
-    prev: usize,
+    head: u32,
+    prev: u32,
 }
 
 pub(crate) struct IncrementalEvaluator {
