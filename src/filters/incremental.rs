@@ -16,7 +16,9 @@ const MIN_MATCH: usize = 3;
 const MAX_MATCH: usize = 258;
 /// How far the parse of the chosen lines stays behind their end
 const LOOKAHEAD: usize = MAX_MATCH + MIN_MATCH + 1;
-/// ... but at most this many lines
+/// ... but at most this many lines, so that each candidate parses a bounded multiple of its own
+/// length. On images only a few bytes wide this judges with less context than a streaming
+/// compressor would.
 const LOOKAHEAD_LINES: usize = 4;
 /// Matches reach back as far as zlib's (`MAX_DIST`)
 const MAX_DISTANCE: usize = WINDOW - LOOKAHEAD;
@@ -462,7 +464,10 @@ impl StrategyEvaluator for IncrementalEvaluator {
     }
 
     fn evaluate(&mut self, output: &[u8], offset: usize) -> bool {
-        // Bring the parse of the chosen lines up to the lookahead before this line
+        // Bring the parse of the chosen lines up to the lookahead before this line. With a
+        // lookahead shorter than a match, a match may end at the chosen lines' end; its last
+        // positions can't be hashed yet and stay out of the chains (fewer match candidates later,
+        // nothing wrong).
         let line_len = output.len() - offset;
         let lookahead = LOOKAHEAD.min(LOOKAHEAD_LINES * line_len);
         self.parsed = self.matcher.parse(
@@ -546,6 +551,26 @@ mod tests {
         assert_eq!(block.litlen[257], 1);
         assert_eq!(block.distance[0], 1);
         assert_eq!(block.extra_bits, 13);
+    }
+
+    #[test]
+    fn block_sizes() {
+        let mut coder = Coder::default();
+        // An empty block: the fixed code's end-of-block (7 bits) after the 3-bit header
+        assert_eq!(Block::new().bits(&mut coder), 10);
+        // A few literals: fixed code, 8 bits each for bytes below 144, 9 above
+        let mut block = Block::new();
+        block.add_literal(0);
+        block.add_literal(200);
+        assert_eq!(block.bits(&mut coder), 10 + 8 + 9);
+        // Many repeats of one long match: the dynamic code wins with short codes
+        let mut block = Block::new();
+        for _ in 0..1000 {
+            block.add_match(258, 1);
+        }
+        let bits = block.bits(&mut coder);
+        assert!(bits < 3 + 1000 * (8 + 5));
+        assert!(bits >= 3 + 1000 * 2);
     }
 
     #[test]

@@ -278,7 +278,7 @@ that this is enabled by default and will only be disabled at level 5 or above.")
                 .help("Deflate compression level (0-14)")
                 .long_help("\
 Deflate compression level (0-14) for main compression trials. The levels here are defined \
-by the libdeflate compression library; 13 and 14 come from a patch that compresses further.
+by the libdeflate compression library; 13 and 14 come from our libdeflate fork and compress further.
 
 The default value depends on the optimization level preset.")
                 .long("zc")
