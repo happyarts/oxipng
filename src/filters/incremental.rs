@@ -26,8 +26,10 @@ const HASH_BITS: u32 = 15;
 /// Positions are kept as 32 bits (half the cache of `usize`); only their distance back counts,
 /// so they may wrap on images of more than 4 GiB
 const NO_POSITION: u32 = u32::MAX;
-/// How many earlier positions with the same hash are tried for a match
-const MAX_CHAIN: usize = 1100;
+/// How many earlier positions with the same hash are tried for a match in the chosen lines...
+const MAX_CHAIN: usize = 128;
+/// ... and in a candidate line, which only has to compare with the other candidates
+const TRIAL_CHAIN: usize = 32;
 /// A block ends after this many symbols
 const BLOCK_SYMBOLS: u32 = 16383;
 
@@ -344,7 +346,7 @@ impl Matcher {
 
     /// The longest earlier match for the bytes at `pos` (at most to the end of `data`):
     /// (length, distance), or None if shorter than the minimum
-    fn longest_match(&self, data: &[u8], pos: usize) -> Option<(usize, usize)> {
+    fn longest_match(&self, data: &[u8], pos: usize, max_chain: usize) -> Option<(usize, usize)> {
         let limit = (data.len() - pos).min(MAX_MATCH);
         if limit < MIN_MATCH {
             return None;
@@ -356,7 +358,7 @@ impl Matcher {
         let mut best = (MIN_MATCH - 1, 0);
         let mut candidate = self.head[Self::hash(data, pos)];
         let mut distance = back(candidate);
-        let mut chain = MAX_CHAIN;
+        let mut chain = max_chain;
         // Chains run to lower positions; anything else is a slot reused by a later position
         while candidate != NO_POSITION && distance > 0 && distance <= reach && chain > 0 {
             let c = pos - distance;
@@ -382,8 +384,9 @@ impl Matcher {
     }
 
     /// Parse `data` greedily from `from` until at least `to` into `block`, inserting every
-    /// position (recorded in `undo` if given); `full` gets each block that fills up before it
-    /// starts anew. Returns where the parse stopped (a match may run past `to`).
+    /// position (recorded in `undo` if given, for a candidate line, which searches less deeply);
+    /// `full` gets each block that fills up before it starts anew. Returns where the parse
+    /// stopped (a match may run past `to`).
     fn parse(
         &mut self,
         data: &[u8],
@@ -395,7 +398,12 @@ impl Matcher {
     ) -> usize {
         let mut pos = from;
         while pos < to {
-            if let Some((length, distance)) = self.longest_match(data, pos) {
+            let max_chain = if undo.is_some() {
+                TRIAL_CHAIN
+            } else {
+                MAX_CHAIN
+            };
+            if let Some((length, distance)) = self.longest_match(data, pos, max_chain) {
                 block.add_match(length, distance);
                 for p in pos..pos + length {
                     self.insert(data, p, undo.as_deref_mut());
