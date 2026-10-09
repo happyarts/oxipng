@@ -456,7 +456,8 @@ fn parse_opts_into_struct(
             final_block_trials: true,
             code_length_passes: true,
             tree_match_finder: true,
-            parallel_chunks: true,
+            // Its chunks run on threads of zopfli's own; with one thread, none
+            parallel_chunks: matches.get_one::<usize>("threads") != Some(&1),
             merge_blocks: true,
             ..Default::default()
         });
