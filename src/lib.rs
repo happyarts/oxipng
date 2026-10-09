@@ -474,16 +474,22 @@ fn frame_sections(image: &PngImage, opts: &Options, deadline: &Deadline) -> Opti
         .then_some(FilterStrategy::Predefined(sections.filters))
 }
 
+/// Above this raw size, the qualifying threshold shrinks with the square root of the size:
+/// on large images a further main compression costs much and seldom wins
+const QUALIFYING_FULL_THRESHOLD_SIZE: usize = 2 << 20;
+
 /// How many candidates of the qualifying round go on to the main compression, and how far
 /// above the best estimate they may be, as a fraction of it
-fn qualifying_limits(opts: &Options) -> (usize, f64) {
-    if opts.fast_evaluation {
+fn qualifying_limits(opts: &Options, raw_size: usize) -> (usize, f64) {
+    let (limit, threshold) = if opts.fast_evaluation {
         (2, 0.01)
     } else if opts.filters.len() >= 10 {
         (4, 0.03)
     } else {
         (3, 0.03)
-    }
+    };
+    let scale = (QUALIFYING_FULL_THRESHOLD_SIZE as f64 / raw_size as f64).sqrt();
+    (limit, threshold * scale.min(1.0))
 }
 
 /// Evaluate every filter strategy section by section at the evaluation level, then compress only
@@ -519,7 +525,7 @@ fn qualifying_round(
             .map(|(s, (&estimate, filters))| (estimate, filters, s)),
     );
     ranked.sort_by_key(|&(estimate, ..)| estimate);
-    let (limit, threshold) = qualifying_limits(opts);
+    let (limit, threshold) = qualifying_limits(opts, image.data.len());
     let cutoff = ranked[0].0 + (ranked[0].0 as f64 * threshold) as usize;
     // The finalists' filters for each line, and the strategy reported for each
     let mut finalists = IndexMap::new();
