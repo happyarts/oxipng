@@ -390,11 +390,9 @@ fn optimize_raw(
 ) -> Option<Candidate> {
     let eval_deflater = Deflater::Libdeflater {
         compression: evaluation_level(opts),
-        part: match opts.deflater {
-            Deflater::Libdeflater { part, .. } => part,
-            #[cfg(feature = "zopfli")]
-            Deflater::Zopfli(_) => None,
-        },
+        // Evaluations stay below level 10 and never use parts; the same
+        // `part` keeps `opts.deflater == eval_deflater` as it was.
+        part: if let Deflater::Libdeflater { part, .. } = opts.deflater { part } else { None },
     };
     // If only one or two filters are given, use them for evaluations
     let eval_filters = if opts.filters.len() <= 2 {

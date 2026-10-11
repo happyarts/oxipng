@@ -1,4 +1,3 @@
-use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use libdeflater::*;
@@ -9,22 +8,7 @@ use rayon::prelude::*;
 use crate::rayon::prelude::*;
 use crate::{PngError, PngResult};
 
-/// The window a part sees of the data before it.
-const WINDOW: usize = 32768;
-
-/// `data` as a zlib stream at `level`; see `Deflater::Libdeflater` for `part`.
-pub fn deflate(
-    data: &[u8],
-    level: u8,
-    part: Option<NonZeroUsize>,
-    max_size: Option<usize>,
-) -> PngResult<Vec<u8>> {
-    if let Some(part) = part.map(NonZeroUsize::get)
-        && level >= 10
-        && data.len() >= 2 * part
-    {
-        return deflate_in_parts(data, level, part, max_size);
-    }
+pub fn deflate(data: &[u8], level: u8, max_size: Option<usize>) -> PngResult<Vec<u8>> {
     let mut compressor = Compressor::new(CompressionLvl::new(level.into()).unwrap());
     let capacity = max_size.unwrap_or_else(|| compressor.zlib_compress_bound(data.len()));
     let mut dest = vec![0; capacity];
@@ -37,44 +21,44 @@ pub fn deflate(
     Ok(dest)
 }
 
-/// The parts (as many as `part` fits in the data, of equal size, so none is
-/// short) compressed at once, then written one after another between the
-/// zlib header and the Adler-32 of the whole. Once the parts done pass
-/// `max_size`, the others aren't started.
-fn deflate_in_parts(data: &[u8], level: u8, part: usize, max_size: Option<usize>) -> PngResult<Vec<u8>> {
-    let part = data.len().div_ceil(data.len() / part);
-    let starts: Vec<usize> = (0..data.len()).step_by(part).collect();
+/// `data` as a zlib stream at `level` (10 or above), in parts (as many as
+/// `part` bytes fit in the data, of equal size, so none is short)
+/// compressed at once, each with the data before it as its window, and
+/// written one after another between the zlib header and the Adler-32 of
+/// the whole. Once the parts done pass `max_size`, the others aren't
+/// started.
+pub fn deflate_in_parts(data: &[u8], level: u8, part: usize, max_size: Option<usize>) -> PngResult<Vec<u8>> {
+    let count = data.len() / part;
+    let part = data.len().div_ceil(count);
     let max = max_size.unwrap_or(usize::MAX);
+    // The zlib header and the Adler-32.
     let written = AtomicUsize::new(6);
-    let parts: Vec<PngResult<Vec<u8>>> = starts
-        .par_iter()
+    let parts: Vec<Option<Vec<u8>>> = (0..count)
+        .into_par_iter()
         .with_max_len(1)
-        .map(|&start| {
+        .map(|k| {
             if written.load(Ordering::Relaxed) > max {
-                return Err(PngError::DeflatedDataTooLong(max));
+                return None;
             }
-            let end = (start + part).min(data.len());
-            let window = start.min(WINDOW);
+            let range = k * part..((k + 1) * part).min(data.len());
             let mut compressor = Compressor::new(CompressionLvl::new(level.into()).unwrap());
-            let capacity = compressor.deflate_compress_bound(end - start) + 16;
-            let mut dest = vec![0; capacity];
+            let mut dest = vec![0; compressor.deflate_compress_part_bound(range.len())];
             let len = compressor
-                .deflate_compress_part(&data[start - window..end], window, end == data.len(), &mut dest)
-                .map_err(|_| PngError::DeflatedDataTooLong(capacity))?;
+                .deflate_compress_part(data, range, &mut dest)
+                .expect("the output buffer has the bound size, and the level is 10 or above");
             dest.truncate(len);
             written.fetch_add(len, Ordering::Relaxed);
-            Ok(dest)
+            Some(dest)
         })
         .collect();
+    let parts: Option<Vec<Vec<u8>>> = parts.into_iter().collect();
+    let Some(parts) = parts.filter(|_| written.into_inner() <= max) else {
+        return Err(PngError::DeflatedDataTooLong(max));
+    };
     // As libdeflate writes it from level 8 on: deflate, 32 KiB window, slowest.
     let mut dest = vec![0x78, 0xDA];
     for part in parts {
-        dest.extend_from_slice(&part?);
-        if let Some(max) = max_size
-            && dest.len() + 4 > max
-        {
-            return Err(PngError::DeflatedDataTooLong(max));
-        }
+        dest.extend_from_slice(&part);
     }
     let mut adler = Adler32::new();
     adler.update(data);
@@ -104,10 +88,14 @@ pub fn crc32(data: &[u8]) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use super::*;
+    use crate::Deflater;
 
     /// Data compressed in parts reads back as it was, also with a length
-    /// the parts don't divide and at the level where the parse differs.
+    /// the parts don't divide and at the level where the parse differs;
+    /// below level 10 and below two parts, it is compressed in one piece.
     #[test]
     fn parts_read_back() {
         let mut x: u32 = 7;
@@ -117,15 +105,15 @@ mod tests {
                 if i % 5 == 0 { (x >> 24) as u8 } else { (i / 61 % 199) as u8 }
             })
             .collect();
-        for level in [11, 13] {
-            let part = NonZeroUsize::new(300_000);
-            let parts = deflate(&data, level, part, None).unwrap();
+        let part = NonZeroUsize::new(300_000);
+        for level in [9, 11, 13] {
+            let parts = Deflater::Libdeflater { compression: level, part }.deflate(&data, None).unwrap();
             assert_eq!(inflate(&parts, data.len()).unwrap(), data);
-            let whole = deflate(&data, level, None, None).unwrap();
+            let whole = deflate(&data, level, None).unwrap();
+            assert_eq!(parts == whole, level < 10);
             assert!(parts.len() < whole.len() + whole.len() / 50);
-            // Below level 10 and below two parts, one piece.
-            assert_eq!(deflate(&data, 9, part, None).unwrap(), deflate(&data, 9, None, None).unwrap());
-            assert_eq!(deflate(&data[..500_000], level, part, None).unwrap(), deflate(&data[..500_000], level, None, None).unwrap());
+            let short = Deflater::Libdeflater { compression: level, part }.deflate(&data[..500_000], None).unwrap();
+            assert_eq!(short, deflate(&data[..500_000], level, None).unwrap());
         }
     }
 }

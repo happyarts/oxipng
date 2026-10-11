@@ -1,7 +1,7 @@
 mod deflater;
 use std::{fmt, fmt::Display, num::NonZeroUsize};
 
-pub use deflater::{crc32, deflate, inflate};
+pub use deflater::{crc32, deflate, deflate_in_parts, inflate};
 
 use crate::{PngError, PngResult};
 
@@ -33,7 +33,10 @@ pub enum Deflater {
 impl Deflater {
     pub(crate) fn deflate(self, data: &[u8], max_size: Option<usize>) -> PngResult<Vec<u8>> {
         let compressed = match self {
-            Self::Libdeflater { compression, part } => deflate(data, compression, part, max_size)?,
+            Self::Libdeflater { compression, part: Some(part) } if compression >= 10 && data.len() >= 2 * part.get() => {
+                deflate_in_parts(data, compression, part.get(), max_size)?
+            }
+            Self::Libdeflater { compression, .. } => deflate(data, compression, max_size)?,
             #[cfg(feature = "zopfli")]
             Self::Zopfli(options) => zopfli_deflate(data, options)?,
         };

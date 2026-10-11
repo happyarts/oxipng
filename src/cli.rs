@@ -1,9 +1,6 @@
 // This module is sourced by an `include!` macro in the `xtask` package.
 
-use std::{
-    num::{NonZeroU64, NonZeroUsize},
-    path::PathBuf,
-};
+use std::{num::NonZeroU64, path::PathBuf};
 
 use clap::builder::Styles;
 use clap::builder::styling::{AnsiColor, Effects};
@@ -301,7 +298,7 @@ many MiB at once, each with the 32 KiB before it as its window. The result is on
 all the same, a little different from one compressed in one piece. From our libdeflate fork.")
                 .long("zpart")
                 .value_name("MiB")
-                .value_parser(value_parser!(NonZeroUsize))
+                .value_parser(value_parser!(u16).range(1..=1024))
                 .conflicts_with("zopfli"),
         )
         .arg(
