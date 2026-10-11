@@ -24,7 +24,7 @@ pub(crate) fn perform_reductions(
     // Try to infer the optimization level from the settings
     // TODO: [v11] Store the level in the settings
     let effort = match opts.deflater {
-        Deflater::Libdeflater { compression } => match compression {
+        Deflater::Libdeflater { compression, .. } => match compression {
             0..=9 => 0,
             10 => 1,
             11 if opts.filters.len() <= 4 => 2,

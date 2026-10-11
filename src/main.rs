@@ -465,10 +465,15 @@ fn parse_opts_into_struct(
             ..Default::default()
         });
     }
-    if let (Deflater::Libdeflater { compression }, Some(x)) =
+    if let (Deflater::Libdeflater { compression, .. }, Some(x)) =
         (&mut opts.deflater, matches.get_one::<i64>("compression"))
     {
         *compression = *x as u8;
+    }
+    if let (Deflater::Libdeflater { part, .. }, Some(&mib)) =
+        (&mut opts.deflater, matches.get_one::<NonZeroUsize>("compression-part"))
+    {
+        *part = mib.checked_mul(NonZeroUsize::new(1 << 20).unwrap());
     }
 
     #[cfg(feature = "parallel")]

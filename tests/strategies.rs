@@ -176,7 +176,7 @@ fn test_sections(
 
     let predefined = FilterStrategy::Predefined(sections.filters);
     let (filtered, _) = image.filter_image(predefined, optimize_alpha);
-    let compressed = deflate(&filtered, 1, None).unwrap();
+    let compressed = deflate(&filtered, 1, None, None).unwrap();
     let decoded = PngImage::new(image.ihdr.clone(), &compressed).unwrap();
     let bytes = image.bytes_per_channel();
     let bpp = bytes * image.channels_per_pixel();
@@ -236,7 +236,7 @@ fn filter_by_sections_single_section() {
     // Each estimate is the strategy's size for the whole image
     for (strategy, estimate) in strategies.iter().zip(&sections.estimated) {
         let (filtered, _) = image.filter_image(strategy.clone(), false);
-        assert_eq!(*estimate, deflate(&filtered, 7, None).unwrap().len());
+        assert_eq!(*estimate, deflate(&filtered, 7, None, None).unwrap().len());
     }
 }
 

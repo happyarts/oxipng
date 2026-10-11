@@ -129,7 +129,7 @@ impl RawImage {
     /// Add an ICC profile for the image
     pub fn add_icc_profile(&mut self, data: &[u8]) {
         // Compress with fastest compression level - will be recompressed during optimization
-        let deflater = Deflater::Libdeflater { compression: 1 };
+        let deflater = Deflater::Libdeflater { compression: 1, part: None };
         if let Ok(iccp) = make_iccp(data, deflater, None) {
             self.aux_chunks.push(iccp);
         }
@@ -390,6 +390,11 @@ fn optimize_raw(
 ) -> Option<Candidate> {
     let eval_deflater = Deflater::Libdeflater {
         compression: evaluation_level(opts),
+        part: match opts.deflater {
+            Deflater::Libdeflater { part, .. } => part,
+            #[cfg(feature = "zopfli")]
+            Deflater::Zopfli(_) => None,
+        },
     };
     // If only one or two filters are given, use them for evaluations
     let eval_filters = if opts.filters.len() <= 2 {
@@ -455,7 +460,7 @@ fn evaluation_level(opts: &Options) -> u8 {
     // 9 is not appreciably better than 8
     // 10 and higher are quite slow - good for filters but only good for reductions if matching the main zc level
     match opts.deflater {
-        Deflater::Libdeflater { compression } if compression < 11 => 5.min(compression),
+        Deflater::Libdeflater { compression, .. } if compression < 11 => 5.min(compression),
         _ if opts.filters.len() <= 4 => 7,
         _ => 8,
     }

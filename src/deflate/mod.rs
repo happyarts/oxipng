@@ -1,5 +1,5 @@
 mod deflater;
-use std::{fmt, fmt::Display};
+use std::{fmt, fmt::Display, num::NonZeroUsize};
 
 pub use deflater::{crc32, deflate, inflate};
 
@@ -17,8 +17,13 @@ pub use zopfli_oxipng::deflate as zopfli_deflate;
 pub enum Deflater {
     /// Use libdeflater.
     Libdeflater {
-        /// Which compression level to use on the file (0-12)
+        /// Which compression level to use on the file (0-14)
         compression: u8,
+        /// From level 10 on, data of at least two parts is compressed in
+        /// parts of about this many bytes at once, each with the data
+        /// before it as its window: one stream all the same, slightly
+        /// different.
+        part: Option<NonZeroUsize>,
     },
     #[cfg(feature = "zopfli")]
     /// Use the better but slower Zopfli implementation
@@ -28,7 +33,7 @@ pub enum Deflater {
 impl Deflater {
     pub(crate) fn deflate(self, data: &[u8], max_size: Option<usize>) -> PngResult<Vec<u8>> {
         let compressed = match self {
-            Self::Libdeflater { compression } => deflate(data, compression, max_size)?,
+            Self::Libdeflater { compression, part } => deflate(data, compression, part, max_size)?,
             #[cfg(feature = "zopfli")]
             Self::Zopfli(options) => zopfli_deflate(data, options)?,
         };
@@ -45,7 +50,10 @@ impl Display for Deflater {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Libdeflater { compression } => write!(f, "zc = {compression}"),
+            Self::Libdeflater { compression, part: None } => write!(f, "zc = {compression}"),
+            Self::Libdeflater { compression, part: Some(part) } => {
+                write!(f, "zc = {compression}, parts of {} MiB", part.get() >> 20)
+            }
             #[cfg(feature = "zopfli")]
             Self::Zopfli(options) => write!(f, "zopfli, zi = {}", options.iteration_count),
         }

@@ -1,6 +1,9 @@
 // This module is sourced by an `include!` macro in the `xtask` package.
 
-use std::{num::NonZeroU64, path::PathBuf};
+use std::{
+    num::{NonZeroU64, NonZeroUsize},
+    path::PathBuf,
+};
 
 use clap::builder::Styles;
 use clap::builder::styling::{AnsiColor, Effects};
@@ -287,6 +290,18 @@ The default value depends on the optimization level preset.")
                 .long("zc")
                 .value_name("level")
                 .value_parser(0..=14)
+                .conflicts_with("zopfli"),
+        )
+        .arg(
+            Arg::new("compression-part")
+                .help("Compress large images in parts of this many MiB at once")
+                .long_help("\
+From compression level 10 on, compress image data of at least two parts in parts of this \
+many MiB at once, each with the 32 KiB before it as its window. The result is one stream \
+all the same, a little different from one compressed in one piece. From our libdeflate fork.")
+                .long("zpart")
+                .value_name("MiB")
+                .value_parser(value_parser!(NonZeroUsize))
                 .conflicts_with("zopfli"),
         )
         .arg(

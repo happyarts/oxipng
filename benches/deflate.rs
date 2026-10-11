@@ -13,7 +13,7 @@ fn deflate_16_bits(b: &mut Bencher) {
     let input = test::black_box(PathBuf::from("tests/files/rgb_16_should_be_rgb_16.png"));
     let png = PngData::new(&input, &Options::default()).unwrap();
 
-    b.iter(|| deflate(png.raw.data.as_ref(), 12, None));
+    b.iter(|| deflate(png.raw.data.as_ref(), 12, None, None));
 }
 
 #[bench]
@@ -21,7 +21,7 @@ fn deflate_8_bits(b: &mut Bencher) {
     let input = test::black_box(PathBuf::from("tests/files/rgb_8_should_be_rgb_8.png"));
     let png = PngData::new(&input, &Options::default()).unwrap();
 
-    b.iter(|| deflate(png.raw.data.as_ref(), 12, None));
+    b.iter(|| deflate(png.raw.data.as_ref(), 12, None, None));
 }
 
 #[bench]
@@ -31,7 +31,7 @@ fn deflate_4_bits(b: &mut Bencher) {
     ));
     let png = PngData::new(&input, &Options::default()).unwrap();
 
-    b.iter(|| deflate(png.raw.data.as_ref(), 12, None));
+    b.iter(|| deflate(png.raw.data.as_ref(), 12, None, None));
 }
 
 #[bench]
@@ -41,7 +41,7 @@ fn deflate_2_bits(b: &mut Bencher) {
     ));
     let png = PngData::new(&input, &Options::default()).unwrap();
 
-    b.iter(|| deflate(png.raw.data.as_ref(), 12, None));
+    b.iter(|| deflate(png.raw.data.as_ref(), 12, None, None));
 }
 
 #[bench]
@@ -51,7 +51,7 @@ fn deflate_1_bits(b: &mut Bencher) {
     ));
     let png = PngData::new(&input, &Options::default()).unwrap();
 
-    b.iter(|| deflate(png.raw.data.as_ref(), 12, None));
+    b.iter(|| deflate(png.raw.data.as_ref(), 12, None, None));
 }
 
 #[bench]

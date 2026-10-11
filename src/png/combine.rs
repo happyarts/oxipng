@@ -124,7 +124,7 @@ impl PngImage {
             // The context is the same for every candidate, so the sizes compare the sections
             // (up to how the context itself is coded).
             let compressed_size = |data: &[u8]| {
-                deflate::deflate(data, level, None)
+                deflate::deflate(data, level, None, None)
                     .expect("the output buffer has the bound size")
                     .len()
             };

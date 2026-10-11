@@ -192,7 +192,7 @@ impl Options {
             FilterStrategy::NONE,
             FilterStrategy::MinSum,
         };
-        self.deflater = Deflater::Libdeflater { compression: 5 };
+        self.deflater = Deflater::Libdeflater { compression: 5, part: None };
         self
     }
 
@@ -201,7 +201,7 @@ impl Options {
             FilterStrategy::NONE,
             FilterStrategy::Bigrams,
         };
-        self.deflater = Deflater::Libdeflater { compression: 10 };
+        self.deflater = Deflater::Libdeflater { compression: 10, part: None };
         self
     }
 
@@ -236,7 +236,7 @@ impl Options {
                 level: 1,
             },
         };
-        self.deflater = Deflater::Libdeflater { compression: 12 };
+        self.deflater = Deflater::Libdeflater { compression: 12, part: None };
         self
     }
 
@@ -253,7 +253,7 @@ impl Options {
                 level: 1,
             },
         };
-        self.deflater = Deflater::Libdeflater { compression: 12 };
+        self.deflater = Deflater::Libdeflater { compression: 12, part: None };
         self
     }
 
@@ -274,7 +274,7 @@ impl Options {
                 level: 5,
             },
         };
-        self.deflater = Deflater::Libdeflater { compression: 12 };
+        self.deflater = Deflater::Libdeflater { compression: 12, part: None };
         self
     }
 }
@@ -300,7 +300,7 @@ impl Default for Options {
             idat_recoding: true,
             scale_16: false,
             strip: StripChunks::None,
-            deflater: Deflater::Libdeflater { compression: 11 },
+            deflater: Deflater::Libdeflater { compression: 11, part: None },
             fast_evaluation: true,
             timeout: None,
             max_decompressed_size: None,
