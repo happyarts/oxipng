@@ -326,7 +326,7 @@ fn optimize_png(
     let mut opts = opts.to_owned();
     preprocess_chunks(&mut png.aux_chunks, &mut opts);
 
-    let max_size = if opts.force {
+    let max_size = if opts.force || opts.reduce_only {
         None
     } else {
         Some(png.raw.estimated_output_size(&png.idat_data))
@@ -422,6 +422,10 @@ fn optimize_raw(
         report_format("Transformed image to ", &new_image);
     }
 
+    if opts.reduce_only {
+        return reduction_occurred.then(|| reduced_only(new_image, deadline)).flatten();
+    }
+
     let (result, deflater) = if opts.idat_recoding || reduction_occurred {
         let result = perform_trials(
             new_image,
@@ -447,6 +451,23 @@ fn optimize_raw(
         return Some(result);
     }
     None
+}
+
+/// The chosen reduction for `reduce_only`, compressed once with filter None at level 1: the
+/// image data is filtered and compressed again by the caller
+fn reduced_only(image: Arc<PngImage>, deadline: Arc<Deadline>) -> Option<Candidate> {
+    let eval = Evaluator::new(
+        deadline,
+        indexset! {FilterStrategy::NONE},
+        Deflater::Libdeflater {
+            compression: 1,
+            part: None,
+        },
+        false,
+        true,
+    );
+    eval.try_image(image);
+    eval.get_best_candidate()
 }
 
 /// The libdeflate level used to evaluate reductions and filters
@@ -748,5 +769,5 @@ fn recompress_frames(
 
 /// Check if an image was already optimized prior to oxipng's operations
 const fn is_fully_optimized(original_size: usize, optimized_size: usize, opts: &Options) -> bool {
-    original_size <= optimized_size && !opts.force
+    original_size <= optimized_size && !opts.force && !opts.reduce_only
 }

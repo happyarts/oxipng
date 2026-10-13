@@ -346,6 +346,18 @@ compressed chunks (such as iCCP) will also be disabled. Note that the combinatio
                 .action(ArgAction::SetTrue),
         )
         .arg(
+            Arg::new("reduce-only")
+                .help("Only choose the reductions, without filter trials or main compression")
+                .long_help("\
+Choose the reductions as the other options would, then write the chosen one compressed once \
+with filter None at level 1, whatever its size: no filter trials and no main compression. For \
+a tool that filters and compresses the image data itself. An image that isn't reduced keeps \
+its image data. APNG frames are compressed as usual.")
+                .long("reduce-only")
+                .action(ArgAction::SetTrue)
+                .conflicts_with_all(["no-recoding", "zopfli"]),
+        )
+        .arg(
             Arg::new("fix")
                 .help("Disable checksum validation")
                 .long_help("\

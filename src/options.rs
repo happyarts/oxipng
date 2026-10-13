@@ -145,6 +145,13 @@ pub struct Options {
     ///
     /// Default: `Libdeflater`
     pub deflater: Deflater,
+    /// Only choose the reductions, as these options would, and write the chosen one compressed
+    /// once with filter None at level 1, whatever its size: no filter trials, no main
+    /// compression (for a tool that filters and compresses the image data itself). An image
+    /// that isn't reduced keeps its image data. APNG frames are compressed as usual.
+    ///
+    /// Default: `false`
+    pub reduce_only: bool,
     /// Whether to use fast evaluation to pick the best filter
     ///
     /// Default: `true`
@@ -298,6 +305,7 @@ impl Default for Options {
             palette_reduction: true,
             grayscale_reduction: true,
             idat_recoding: true,
+            reduce_only: false,
             scale_16: false,
             strip: StripChunks::None,
             deflater: Deflater::Libdeflater { compression: 11, part: None },

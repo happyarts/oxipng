@@ -702,3 +702,42 @@ fn json_dry_run() {
     assert_eq!(result2["input"], path2);
     assert_eq!(result2["status"], "error");
 }
+
+#[test]
+fn reduce_only_keeps_the_reduction() {
+    // The same reduction as a full run with the same options, without its trials
+    let (mut checked, mut larger) = (0, 0);
+    for entry in std::fs::read_dir("tests/files").unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if !name.contains("_should_be_") || name.starts_with("interlaced") {
+            continue;
+        }
+        let data = std::fs::read(&path).unwrap();
+        let mut opts = Options::from_preset(4);
+        opts.force = true;
+        let full = optimize_from_memory(&data, &opts).unwrap();
+        opts.reduce_only = true;
+        let reduced = optimize_from_memory(&data, &opts).unwrap();
+        // Without the main compression, and written whatever its size
+        if reduced.len() > full.len() {
+            larger += 1;
+        }
+        let (full, reduced) = (
+            PngData::from_slice(&full, &opts).unwrap(),
+            PngData::from_slice(&reduced, &opts).unwrap(),
+        );
+        assert_eq!(
+            full.raw.ihdr.color_type, reduced.raw.ihdr.color_type,
+            "{name}"
+        );
+        assert_eq!(
+            full.raw.ihdr.bit_depth, reduced.raw.ihdr.bit_depth,
+            "{name}"
+        );
+        assert_eq!(full.raw.data, reduced.raw.data, "{name}");
+        checked += 1;
+    }
+    assert!(checked > 50);
+    assert!(larger > checked / 2);
+}
