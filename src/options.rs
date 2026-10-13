@@ -159,6 +159,11 @@ pub struct Options {
     ///
     /// Default: `false`
     pub choose_only: bool,
+    /// With `choose_only`: a file to write the qualifying round's finalists to (the best
+    /// estimate first), each as its filter for every line, one byte per line.
+    ///
+    /// Default: `None`
+    pub choose_finalists: Option<PathBuf>,
     /// Whether to use fast evaluation to pick the best filter
     ///
     /// Default: `true`
@@ -314,6 +319,7 @@ impl Default for Options {
             idat_recoding: true,
             reduce_only: false,
             choose_only: false,
+            choose_finalists: None,
             scale_16: false,
             strip: StripChunks::None,
             deflater: Deflater::Libdeflater { compression: 11, part: None },

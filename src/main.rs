@@ -374,6 +374,7 @@ fn parse_opts_into_struct(
 
     opts.reduce_only = matches.get_flag("reduce-only");
     opts.choose_only = matches.get_flag("choose-only");
+    opts.choose_finalists = matches.get_one::<PathBuf>("choose-finalists").cloned();
     opts.force |= opts.reduce_only || opts.choose_only;
 
     if let Some(x) = matches.get_one::<String>("interlace") {

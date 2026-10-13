@@ -775,3 +775,24 @@ fn choose_only_keeps_reduction_and_skips_main_compression() {
     assert!(checked > 50);
     assert!(larger > checked / 2);
 }
+
+#[test]
+fn choose_finalists_lists_the_best_estimate_first() {
+    let input = std::fs::read("tests/files/rgb_8_should_be_rgb_8.png").unwrap();
+    let path = std::env::temp_dir().join(format!("oxipng-finalists-{}", std::process::id()));
+    let mut opts = Options::from_preset(4);
+    opts.choose_only = true;
+    opts.choose_finalists = Some(path.clone());
+    let output = optimize_from_memory(&input, &opts).unwrap();
+    let lines = std::fs::read(&path).unwrap();
+    remove_file(&path).ok();
+    let png = PngData::from_slice(&output, &opts).unwrap();
+    let height = png.raw.ihdr.height as usize;
+    assert!(!lines.is_empty() && lines.len() % height == 0);
+    // The output's own filters are the first finalist's
+    let line_len = png.raw.ihdr.raw_data_size() / height;
+    let inflated =
+        oxipng::internal_tests::inflate(&png.idat_data, png.raw.ihdr.raw_data_size()).unwrap();
+    let filters: Vec<u8> = (0..height).map(|y| inflated[y * line_len]).collect();
+    assert_eq!(&lines[..height], &filters[..]);
+}

@@ -566,6 +566,19 @@ fn qualifying_round(
 
     // With `choose_only`, the best estimate is the result, compressed once at level 1
     if opts.choose_only {
+        if let Some(path) = &opts.choose_finalists {
+            let lines: Vec<u8> = finalists
+                .keys()
+                .filter_map(|f| match f {
+                    FilterStrategy::Predefined(lines) => Some(lines.iter().map(|&l| l as u8)),
+                    _ => None,
+                })
+                .flatten()
+                .collect();
+            if let Err(error) = std::fs::write(path, lines) {
+                warn!("{}: {error}", path.display());
+            }
+        }
         finalists.truncate(1);
         let eval = Evaluator::new(
             Arc::new(Deadline::new(None)),

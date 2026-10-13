@@ -370,6 +370,17 @@ compresses the image data itself, keeping the filters.")
                 .conflicts_with_all(["no-recoding", "zopfli", "reduce-only"]),
         )
         .arg(
+            Arg::new("choose-finalists")
+                .help("With --choose-only, write the finalists' filters to this file")
+                .long_help("\
+With --choose-only: write the qualifying round's finalists (the best estimate first) to this \
+file, each as its filter for every line, one byte per line.")
+                .long("choose-finalists")
+                .value_name("file")
+                .value_parser(value_parser!(PathBuf))
+                .requires("choose-only"),
+        )
+        .arg(
             Arg::new("fix")
                 .help("Disable checksum validation")
                 .long_help("\
