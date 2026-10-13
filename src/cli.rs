@@ -358,6 +358,18 @@ its image data. APNG frames are compressed as usual.")
                 .conflicts_with_all(["no-recoding", "zopfli"]),
         )
         .arg(
+            Arg::new("choose-only")
+                .help("Choose the reductions and filters, without main compression")
+                .long_help("\
+With more than two filters: choose the reductions and the filters as the other options would \
+(each strategy estimated section by section at the evaluation level), then write the best \
+estimate compressed once at level 1, whatever its size: no main compression. For a tool that \
+compresses the image data itself, keeping the filters.")
+                .long("choose-only")
+                .action(ArgAction::SetTrue)
+                .conflicts_with_all(["no-recoding", "zopfli", "reduce-only"]),
+        )
+        .arg(
             Arg::new("fix")
                 .help("Disable checksum validation")
                 .long_help("\

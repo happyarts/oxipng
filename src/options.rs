@@ -152,6 +152,13 @@ pub struct Options {
     ///
     /// Default: `false`
     pub reduce_only: bool,
+    /// With more than two filters: choose the reductions and the filters as these options would
+    /// (each strategy estimated section by section at the evaluation level), and write the best
+    /// estimate compressed once at level 1, whatever its size: no main compression (for a tool
+    /// that compresses the image data itself, keeping the filters).
+    ///
+    /// Default: `false`
+    pub choose_only: bool,
     /// Whether to use fast evaluation to pick the best filter
     ///
     /// Default: `true`
@@ -306,6 +313,7 @@ impl Default for Options {
             grayscale_reduction: true,
             idat_recoding: true,
             reduce_only: false,
+            choose_only: false,
             scale_16: false,
             strip: StripChunks::None,
             deflater: Deflater::Libdeflater { compression: 11, part: None },

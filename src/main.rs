@@ -373,7 +373,8 @@ fn parse_opts_into_struct(
     opts.idat_recoding = !matches.get_flag("no-recoding");
 
     opts.reduce_only = matches.get_flag("reduce-only");
-    opts.force |= opts.reduce_only;
+    opts.choose_only = matches.get_flag("choose-only");
+    opts.force |= opts.reduce_only || opts.choose_only;
 
     if let Some(x) = matches.get_one::<String>("interlace") {
         opts.interlace = match x.as_str() {

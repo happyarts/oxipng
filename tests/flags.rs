@@ -741,3 +741,37 @@ fn reduce_only_keeps_the_reduction() {
     assert!(checked > 50);
     assert!(larger > checked / 2);
 }
+
+#[test]
+fn choose_only_keeps_reduction_and_skips_main_compression() {
+    let (mut checked, mut larger) = (0, 0);
+    for entry in std::fs::read_dir("tests/files").unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if !name.contains("_should_be_") || name.starts_with("interlaced") {
+            continue;
+        }
+        let data = std::fs::read(&path).unwrap();
+        let mut opts = Options::from_preset(4);
+        opts.force = true;
+        let full = optimize_from_memory(&data, &opts).unwrap();
+        opts.choose_only = true;
+        let chosen = optimize_from_memory(&data, &opts).unwrap();
+        if chosen.len() > full.len() {
+            larger += 1;
+        }
+        let (full, chosen) = (
+            PngData::from_slice(&full, &opts).unwrap(),
+            PngData::from_slice(&chosen, &opts).unwrap(),
+        );
+        assert_eq!(
+            full.raw.ihdr.color_type, chosen.raw.ihdr.color_type,
+            "{name}"
+        );
+        assert_eq!(full.raw.ihdr.bit_depth, chosen.raw.ihdr.bit_depth, "{name}");
+        assert_eq!(full.raw.data, chosen.raw.data, "{name}");
+        checked += 1;
+    }
+    assert!(checked > 50);
+    assert!(larger > checked / 2);
+}

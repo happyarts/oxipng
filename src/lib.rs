@@ -326,7 +326,7 @@ fn optimize_png(
     let mut opts = opts.to_owned();
     preprocess_chunks(&mut png.aux_chunks, &mut opts);
 
-    let max_size = if opts.force || opts.reduce_only {
+    let max_size = if opts.force || opts.reduce_only || opts.choose_only {
         None
     } else {
         Some(png.raw.estimated_output_size(&png.idat_data))
@@ -564,6 +564,25 @@ fn qualifying_round(
         }
     }
 
+    // With `choose_only`, the best estimate is the result, compressed once at level 1
+    if opts.choose_only {
+        finalists.truncate(1);
+        let eval = Evaluator::new(
+            Arc::new(Deadline::new(None)),
+            finalists.keys().cloned().collect(),
+            Deflater::Libdeflater {
+                compression: 1,
+                part: None,
+            },
+            opts.optimize_alpha,
+            true,
+        );
+        eval.try_image(image);
+        let mut result = eval.get_best_candidate()?;
+        result.filter = finalists[&result.filter].clone();
+        return Some(result);
+    }
+
     // If the deadline passed during the evaluation, a fast evaluation still compresses the best
     // (as with a single main compression trial), full trials give up
     let deadline = if deadline.passed() && opts.fast_evaluation {
@@ -769,5 +788,5 @@ fn recompress_frames(
 
 /// Check if an image was already optimized prior to oxipng's operations
 const fn is_fully_optimized(original_size: usize, optimized_size: usize, opts: &Options) -> bool {
-    original_size <= optimized_size && !opts.force && !opts.reduce_only
+    original_size <= optimized_size && !opts.force && !opts.reduce_only && !opts.choose_only
 }
