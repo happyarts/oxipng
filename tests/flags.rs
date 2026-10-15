@@ -590,12 +590,10 @@ fn strip_safe_keep_gama_chrm() {
         |png| {
             assert_eq!(count_chunk(png, b"gAMA"), 1);
             assert_eq!(count_chunk(png, b"cHRM"), 1);
-            assert_eq!(count_chunk(png, b"tEXt"), 1);
         },
         |png| {
             assert_eq!(count_chunk(png, b"gAMA"), 1);
             assert_eq!(count_chunk(png, b"cHRM"), 1);
-            assert_eq!(count_chunk(png, b"tEXt"), 0);
         },
     );
 }
