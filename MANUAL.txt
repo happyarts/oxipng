@@ -55,7 +55,7 @@ Options:
           Strip metadata chunks, where <mode> is one of:
           
               safe    =>  Strip all non-critical chunks, except for the following:
-                              cICP, iCCP, sRGB, pHYs, acTL, fcTL, fdAT
+                              cICP, iCCP, sRGB, gAMA, cHRM, pHYs, acTL, fcTL, fdAT
               all     =>  Strip all non-critical chunks
               <list>  =>  Strip chunks in the comma-separated list, e.g. 'bKGD,cHRM'
           
