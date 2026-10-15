@@ -296,9 +296,9 @@ pub fn srgb_rendering_intent(icc_data: &[u8]) -> Option<u8> {
 /// Process aux chunks and potentially adjust options before optimizing
 pub fn preprocess_chunks(aux_chunks: &mut Vec<Chunk>, opts: &mut Options) {
     let has_srgb = aux_chunks.iter().any(|c| &c.name == b"sRGB");
-    // Grayscale conversion should not be performed if the image is not in the sRGB colorspace
-    // An sRGB profile would need to be stripped on conversion, so disallow if stripping is disabled
-    let mut allow_grayscale = !has_srgb || opts.strip != StripChunks::None;
+    // Grayscale conversion should not be performed if the image is not in the sRGB colorspace,
+    // that is if it has an iCCP chunk (below). An sRGB chunk stays valid for a grayscale image.
+    let mut allow_grayscale = true;
 
     if let Some(iccp_idx) = aux_chunks.iter().position(|c| &c.name == b"iCCP") {
         allow_grayscale = false;
@@ -339,7 +339,7 @@ pub fn preprocess_chunks(aux_chunks: &mut Vec<Chunk>, opts: &mut Options) {
     }
 
     if !allow_grayscale && opts.grayscale_reduction {
-        debug!("Disabling grayscale reduction due to presence of sRGB or iCCP chunk");
+        debug!("Disabling grayscale reduction due to presence of iCCP chunk");
         opts.grayscale_reduction = false;
     }
 
@@ -385,10 +385,11 @@ pub fn postprocess_chunks(aux_chunks: &mut Vec<Chunk>, ihdr: &IhdrData, orig_ihd
         });
     }
 
-    // Remove any sRGB or iCCP chunks if the image was converted to or from grayscale
+    // Remove any iCCP chunk if the image was converted to or from grayscale (an sRGB chunk
+    // applies to both)
     if orig_ihdr.color_type.is_gray() != ihdr.color_type.is_gray() {
         aux_chunks.retain(|c| {
-            let invalid = &c.name == b"sRGB" || &c.name == b"iCCP";
+            let invalid = &c.name == b"iCCP";
             if invalid {
                 trace!(
                     "Removing {} chunk as it no longer matches the color type",

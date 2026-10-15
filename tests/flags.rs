@@ -543,7 +543,32 @@ fn profile_srgb_allow_gray() {
         },
         |png| {
             assert_eq!(count_chunk(png, b"iCCP"), 0);
-            assert_eq!(count_chunk(png, b"sRGB"), 0);
+            assert_eq!(count_chunk(png, b"sRGB"), 1);
+        },
+    );
+}
+
+#[test]
+fn srgb_no_strip_allow_gray() {
+    let input = PathBuf::from("tests/files/srgb_no_strip_allow_gray.png");
+    let (output, mut opts) = get_opts(&input);
+    opts.strip = StripChunks::None;
+
+    test_it_converts_callbacks(
+        input,
+        &output,
+        &opts,
+        RGB,
+        BitDepth::Eight,
+        GRAY,
+        BitDepth::Eight,
+        |png| {
+            assert_eq!(count_chunk(png, b"sRGB"), 1);
+            assert_eq!(count_chunk(png, b"gAMA"), 1);
+        },
+        |png| {
+            assert_eq!(count_chunk(png, b"sRGB"), 1);
+            assert_eq!(count_chunk(png, b"gAMA"), 1);
         },
     );
 }
