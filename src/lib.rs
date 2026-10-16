@@ -392,7 +392,10 @@ fn optimize_raw(
         compression: evaluation_level(opts),
         // Evaluations stay below level 10 and never use parts; the same
         // `part` keeps `opts.deflater == eval_deflater` as it was.
-        part: if let Deflater::Libdeflater { part, .. } = opts.deflater { part } else { None },
+        part: match opts.deflater {
+            Deflater::Libdeflater { part, .. } => part,
+            _ => None,
+        },
     };
     // If only one or two filters are given, use them for evaluations
     let eval_filters = if opts.filters.len() <= 2 {
