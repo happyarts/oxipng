@@ -94,3 +94,38 @@ fn incorrect_length() {
     )
     .expect_err("Expected incorrect data length");
 }
+
+#[test]
+fn sbit_kept_with_new_palette() {
+    let opts = get_opts();
+
+    let mut raw = RawImage::new(
+        4,
+        2,
+        ColorType::Indexed {
+            palette: vec![
+                RGBA8::new(255, 255, 255, 255),
+                RGBA8::new(255, 0, 0, 255),
+                RGBA8::new(0, 255, 0, 255),
+                RGBA8::new(0, 0, 255, 255),
+            ],
+        },
+        BitDepth::Two,
+        vec![0b0001_1100, 0b0001_1100],
+    )
+    .unwrap();
+    raw.add_png_chunk(*b"sBIT", vec![5, 6, 5]);
+    raw.add_png_chunk(*b"bKGD", vec![3]);
+
+    let output = raw.create_optimized_png(&opts).unwrap();
+
+    let new = PngData::from_slice(&output, &opts).unwrap();
+    assert_eq!(new.raw.ihdr.bit_depth, BitDepth::Two);
+    let ColorType::Indexed { palette } = &new.raw.ihdr.color_type else {
+        panic!("not indexed");
+    };
+    assert_eq!(palette.len(), 3);
+    let sbit = new.aux_chunks.iter().find(|c| &c.name == b"sBIT");
+    assert_eq!(sbit.map(|c| c.data.as_slice()), Some([5, 6, 5].as_slice()));
+    assert!(!new.aux_chunks.iter().any(|c| &c.name == b"bKGD"));
+}

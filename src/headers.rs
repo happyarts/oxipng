@@ -372,18 +372,23 @@ pub fn postprocess_chunks(aux_chunks: &mut Vec<Chunk>, ihdr: &IhdrData, orig_ihd
     // If the depth/color type has changed, some chunks may be invalid and should be dropped
     // While these could potentially be converted, they have no known use case today and are
     // generally more trouble than they're worth
-    if orig_ihdr.bit_depth != ihdr.bit_depth || orig_ihdr.color_type != ihdr.color_type {
-        aux_chunks.retain(|c| {
-            if Chunk::REDUCTION_CONFLICTS.contains(&c.name) {
-                warn!(
-                    "Removing {} chunk as it no longer matches the image data",
-                    std::str::from_utf8(&c.name).unwrap()
-                );
-                return false;
-            }
-            true
-        });
-    }
+    // sBIT depends only on the color type and bit depth, bKGD and hIST also on the palette
+    let format_changed = orig_ihdr.bit_depth != ihdr.bit_depth
+        || orig_ihdr.color_type.png_header_code() != ihdr.color_type.png_header_code();
+    let color_type_changed = format_changed || orig_ihdr.color_type != ihdr.color_type;
+    aux_chunks.retain(|c| {
+        let invalid = match &c.name {
+            b"sBIT" => format_changed,
+            name => Chunk::REDUCTION_CONFLICTS.contains(name) && color_type_changed,
+        };
+        if invalid {
+            warn!(
+                "Removing {} chunk as it no longer matches the image data",
+                std::str::from_utf8(&c.name).unwrap()
+            );
+        }
+        !invalid
+    });
 
     // Remove any iCCP chunk if the image was converted to or from grayscale (an sRGB chunk
     // applies to both)
